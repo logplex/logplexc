@@ -67,6 +67,10 @@ func NewClient(cfg *Config) (client *Client, err error) {
 		c.Logplex.User = url.UserPassword("token", c.Token)
 	}
 
+	// http.Client expects to have a transport reference; fix up
+	// the pointer to point the copy of Transport passed.
+	c.Config.HttpClient.Transport = &c.Transport
+
 	return &c, nil
 }
 
