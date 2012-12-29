@@ -24,7 +24,7 @@ type Config struct {
 	Logplex    url.URL
 	Token      string
 	HttpClient http.Client
-	Transport  http.Transport
+	Transport  http.RoundTripper
 }
 
 // A bundle of messages that are either being accrued to or in the
@@ -69,7 +69,7 @@ func NewClient(cfg *Config) (client *Client, err error) {
 
 	// http.Client expects to have a transport reference; fix up
 	// the pointer to point the copy of Transport passed.
-	c.Config.HttpClient.Transport = &c.Transport
+	c.Config.HttpClient.Transport = c.Transport
 
 	return &c, nil
 }
