@@ -18,13 +18,15 @@ type Stats struct {
 
 // Configuration of a Client.
 //
-// The configuration is by-value to prevent accidental sharing of
-// modifications between clients.
+// The configuration is by-value to prevent most kinds of accidental
+// sharing of modifications between clients.  Also, modification of
+// the URL is compulsary in the constructor, and it's not desirable to
+// modify the version passed by the user as a side effect of
+// constructing a client instance.
 type Config struct {
 	Logplex    url.URL
 	Token      string
 	HttpClient http.Client
-	Transport  http.RoundTripper
 }
 
 // A bundle of messages that are either being accrued to or in the
@@ -66,10 +68,6 @@ func NewClient(cfg *Config) (client *Client, err error) {
 	if c.Logplex.User == nil {
 		c.Logplex.User = url.UserPassword("token", c.Token)
 	}
-
-	// http.Client expects to have a transport reference; fix up
-	// the pointer to point the copy of Transport passed.
-	c.Config.HttpClient.Transport = c.Transport
 
 	return &c, nil
 }
