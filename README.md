@@ -23,7 +23,6 @@ One might use it something like this:
 		Logplex:    *logplexUrl,
 		Token:      *logplexToken,
 		HttpClient: *http.DefaultClient,
-		Transport: http.Transport{},
 	}
 
 	cl := logplexc.NewClient(&cfg)
