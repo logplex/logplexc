@@ -120,18 +120,18 @@ func (c *Client) BufferMessage(when time.Time, procId string, log []byte) Stats 
 
 // Post messages that are pending being posted.
 func (c *Client) PostMessages() (*http.Response, error) {
-	var b bundle
-
 	// Swap out the bundle that is about to go through a long I/O
 	// operation for a fresh one, so that buffering can continue
 	// again immediately.
-	func() {
+	b := func() bundle {
 		c.bSwapLock.Lock()
 		defer c.bSwapLock.Unlock()
 
-		b = *c.b
+		b := *c.b
 		c.b.outbox = bytes.Buffer{}
 		c.b.nFramed = 0
+
+		return b;
 	}()
 
 	// Record that a request is in progress so that a clean
