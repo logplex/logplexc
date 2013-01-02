@@ -36,15 +36,13 @@ type Config struct {
 // manipulate bundles to pipeline buffering new logs to be written
 // with bundles that have I/O in progress.
 type bundle struct {
-	nFramed uint64
-	outbox  bytes.Buffer
+	Stats
+	outbox bytes.Buffer
 }
 
 // Client context: generally, at a minimum, one should exist per
 // Logplex credential serviced by the program.
 type Client struct {
-	Stats
-
 	// Configuration that should not be mutated after creation
 	Config
 
@@ -77,10 +75,7 @@ func NewClient(cfg *Config) (client *Client, err error) {
 // Useful as a subroutine for procedures that already have taken care
 // of synchronization.
 func unsyncStats(b *bundle) Stats {
-	return Stats{
-		NumberFramed: b.nFramed,
-		Buffered:     b.outbox.Len(),
-	}
+	return b.Stats
 }
 
 // Copy the statistics structure embedded in the client.
@@ -113,7 +108,8 @@ func (c *Client) BufferMessage(when time.Time, procId string, log []byte) Stats 
 	msgLen := len(syslogPrefix) + len(log)
 
 	fmt.Fprintf(&c.b.outbox, "%d %s%s", msgLen, syslogPrefix, log)
-	c.b.nFramed += 1
+	c.b.NumberFramed += 1
+	c.b.Buffered = c.b.outbox.Len()
 
 	return unsyncStats(c.b)
 }
@@ -123,16 +119,15 @@ func (c *Client) PostMessages() (*http.Response, Stats, error) {
 	// Swap out the bundle that is about to go through a long I/O
 	// operation for a fresh one, so that buffering can continue
 	// again immediately.
-	s, b := func() (Stats, bundle) {
+	b := func() bundle {
 		c.bSwapLock.Lock()
 		defer c.bSwapLock.Unlock()
 
-		s := c.Stats
 		b := *c.b
 		c.b.outbox = bytes.Buffer{}
-		c.b.nFramed = 0
+		c.b.Stats = Stats{}
 
-		return s, b
+		return b
 	}()
 
 	// Record that a request is in progress so that a clean
@@ -142,12 +137,13 @@ func (c *Client) PostMessages() (*http.Response, Stats, error) {
 
 	req, _ := http.NewRequest("POST", c.Logplex.String(), &b.outbox)
 	req.Header.Add("Content-Type", "application/logplex-1")
-	req.Header.Add("Logplex-Msg-Count", strconv.FormatUint(b.nFramed, 10))
+	req.Header.Add("Logplex-Msg-Count",
+		strconv.FormatUint(b.NumberFramed, 10))
 
 	resp, err := c.HttpClient.Do(req)
 	if err != nil {
-		return nil, s, err
+		return nil, b.Stats, err
 	}
 
-	return resp, s, nil
+	return resp, b.Stats, nil
 }
