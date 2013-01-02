@@ -35,7 +35,7 @@ type MiniConfig struct {
 // This is packaged into its own type as it is handy to be able to
 // manipulate bundles to pipeline buffering new logs to be written
 // with bundles that have I/O in progress.
-type bundle struct {
+type Bundle struct {
 	MiniStats
 	outbox bytes.Buffer
 }
@@ -50,13 +50,13 @@ type MiniClient struct {
 
 	// Messages that have been collected but not yet sent.
 	bSwapLock sync.Mutex
-	b         *bundle
+	b         *Bundle
 }
 
 func NewMiniClient(cfg *MiniConfig) (client *MiniClient, err error) {
 	c := MiniClient{}
 
-	c.b = &bundle{outbox: bytes.Buffer{}}
+	c.b = &Bundle{outbox: bytes.Buffer{}}
 
 	// Make a private copy
 	c.MiniConfig = *cfg
@@ -74,7 +74,7 @@ func NewMiniClient(cfg *MiniConfig) (client *MiniClient, err error) {
 //
 // Useful as a subroutine for procedures that already have taken care
 // of synchronization.
-func unsyncStats(b *bundle) MiniStats {
+func unsyncStats(b *Bundle) MiniStats {
 	return b.MiniStats
 }
 
@@ -115,22 +115,21 @@ func (c *MiniClient) BufferMessage(
 	return unsyncStats(c.b)
 }
 
-// Post messages that are pending being posted.
-func (c *MiniClient) PostMessages() (*http.Response, MiniStats, error) {
-	// Swap out the bundle that is about to go through a long I/O
-	// operation for a fresh one, so that buffering can continue
-	// again immediately.
-	b := func() bundle {
-		c.bSwapLock.Lock()
-		defer c.bSwapLock.Unlock()
+func (c *MiniClient) SwapBundle() Bundle {
+	// Swap out the bundle for a fresh one, so that buffering can
+	// continue again immediately.  It's the caller's perogative
+	// to submit the Bundle to logplex.
+	c.bSwapLock.Lock()
+	defer c.bSwapLock.Unlock()
 
-		b := *c.b
-		c.b.outbox = bytes.Buffer{}
-		c.b.MiniStats = MiniStats{}
+	b := *c.b
+	c.b.outbox = bytes.Buffer{}
+	c.b.MiniStats = MiniStats{}
 
-		return b
-	}()
+	return b
+}
 
+func (c *MiniClient) Post(b *Bundle) (*http.Response, error) {
 	// Record that a request is in progress so that a clean
 	// shutdown can wait for it to complete.
 	c.reqInFlight.Add(1)
@@ -143,8 +142,8 @@ func (c *MiniClient) PostMessages() (*http.Response, MiniStats, error) {
 
 	resp, err := c.HttpClient.Do(req)
 	if err != nil {
-		return nil, b.MiniStats, err
+		return nil, err
 	}
 
-	return resp, b.MiniStats, nil
+	return resp, nil
 }

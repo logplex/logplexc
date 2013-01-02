@@ -38,6 +38,7 @@ type Stats struct {
 	// Request-level statistics
 
 	TotalRequests   uint64
+	DroppedRequests uint64
 	CancelRequests  uint64
 	RejectRequests  uint64
 	SuccessRequests uint64
@@ -166,8 +167,10 @@ func (m *Client) syncWorker() {
 	atomic.AddInt32(&m.Stats.Concurrency, 1)
 	defer atomic.AddInt32(&m.Stats.Concurrency, -1)
 
+	b := m.c.SwapBundle()
+
 	// Check if there are any worker tokens available. If not,
-	// then signal someone else to do the work and exit.
+	// then just abort after recording drop statistics.
 	select {
 	case <-m.bucket:
 		// When exiting, free up the token for use by another
@@ -176,22 +179,23 @@ func (m *Client) syncWorker() {
 			m.bucket <- true
 		}()
 	default:
+		m.statReqDrop(&b.MiniStats)
 		return
 	}
 
 	// Post to logplex.
-	resp, s, err := m.c.PostMessages()
+	resp, err := m.c.Post(&b)
 	if err != nil {
-		m.statReqErr(&s)
+		m.statReqErr(&b.MiniStats)
 	}
 
 	defer resp.Body.Close()
 
 	// Check HTTP return code and accrue statistics accordingly.
 	if resp.StatusCode != http.StatusNoContent {
-		m.statReqRej(&s)
+		m.statReqRej(&b.MiniStats)
 	} else {
-		m.statReqSuccess(&s)
+		m.statReqSuccess(&b.MiniStats)
 	}
 
 	return
@@ -227,4 +231,13 @@ func (m *Client) statReqRej(s *MiniStats) {
 
 	m.Rejected += s.NumberFramed
 	m.RejectRequests += 1
+}
+
+func (m *Client) statReqDrop(s *MiniStats) {
+	m.statLock.Lock()
+	defer m.statLock.Unlock()
+	m.statReqTotalUnsync(s)
+
+	m.Dropped += s.NumberFramed
+	m.DroppedRequests += 1
 }
