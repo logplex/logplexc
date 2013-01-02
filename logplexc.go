@@ -119,19 +119,20 @@ func (c *Client) BufferMessage(when time.Time, procId string, log []byte) Stats 
 }
 
 // Post messages that are pending being posted.
-func (c *Client) PostMessages() (*http.Response, error) {
+func (c *Client) PostMessages() (*http.Response, Stats, error) {
 	// Swap out the bundle that is about to go through a long I/O
 	// operation for a fresh one, so that buffering can continue
 	// again immediately.
-	b := func() bundle {
+	s, b := func() (Stats, bundle) {
 		c.bSwapLock.Lock()
 		defer c.bSwapLock.Unlock()
 
+		s := c.Stats
 		b := *c.b
 		c.b.outbox = bytes.Buffer{}
 		c.b.nFramed = 0
 
-		return b;
+		return s, b
 	}()
 
 	// Record that a request is in progress so that a clean
@@ -145,8 +146,8 @@ func (c *Client) PostMessages() (*http.Response, error) {
 
 	resp, err := c.HttpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, s, err
 	}
 
-	return resp, nil
+	return resp, s, nil
 }
