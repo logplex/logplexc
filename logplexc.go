@@ -4,6 +4,7 @@ package logplexc
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -64,14 +65,22 @@ type Client struct {
 }
 
 type Config struct {
-	MiniConfig
+	Logplex            url.URL
+	Token              string
+	HttpClient         http.Client
 	RequestSizeTrigger int
 	Concurrency        int
 	TargetLogLatency   time.Duration
 }
 
 func NewClient(cfg *Config) (*Client, error) {
-	c, err := NewMiniClient(&cfg.MiniConfig)
+	c, err := NewMiniClient(
+		&MiniConfig{
+			Logplex:    cfg.Logplex,
+			Token:      cfg.Token,
+			HttpClient: cfg.HttpClient,
+		})
+
 	if err != nil {
 		return nil, err
 	}
