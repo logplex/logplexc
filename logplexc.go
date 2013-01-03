@@ -86,12 +86,22 @@ func NewClient(cfg *Config) (*Client, error) {
 		return nil, err
 	}
 
+	if cfg.TargetLogLatency < 0 {
+		return nil, errors.New("logplexc.Client: negative target " +
+			"latency not allowed")
+	}
+
 	m := Client{
 		c:                  c,
 		finalize:           make(chan bool),
 		bucket:             make(chan bool),
 		RequestSizeTrigger: cfg.RequestSizeTrigger,
-		ticker:             time.NewTicker(cfg.TargetLogLatency),
+	}
+
+	// If duration is zero, don't bother starting the ticker; a
+	// special code path for a nil ticker will send immediately.
+	if cfg.TargetLogLatency > 0 {
+		m.ticker = time.NewTicker(cfg.TargetLogLatency)
 	}
 
 	// Supply tokens to the buckets.
@@ -107,22 +117,25 @@ func NewClient(cfg *Config) (*Client, error) {
 
 	// Periodic log-sending ticker for responsive low-volume
 	// logging.
-	go func() {
-		for {
-			// Wait for a while to do work, or to exit
-			select {
-			case <-m.ticker.C:
-			case _, _ = <-m.finalize:
-				return
-			}
+	if m.ticker != nil {
+		go func() {
+			for {
+				// Wait for a while to do work, or to
+				// exit
+				select {
+				case <-m.ticker.C:
+				case _, _ = <-m.finalize:
+					return
+				}
 
-			// Avoid sending empty requests
-			s := m.c.Statistics()
-			if s.NumberFramed > 0 {
-				go m.syncWorker()
+				// Avoid sending empty requests
+				s := m.c.Statistics()
+				if s.NumberFramed > 0 {
+					go m.syncWorker()
+				}
 			}
-		}
-	}()
+		}()
+	}
 
 	return &m, nil
 }
@@ -148,7 +161,7 @@ func (m *Client) BufferMessage(
 	defer m.statLock.Unlock()
 
 	s := m.c.BufferMessage(when, procId, log)
-	if s.Buffered >= m.RequestSizeTrigger {
+	if s.Buffered >= m.RequestSizeTrigger || m.ticker == nil {
 		go m.syncWorker()
 	}
 
