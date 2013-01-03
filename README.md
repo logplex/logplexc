@@ -15,34 +15,30 @@ One might use it something like this:
 	import (
 	       "fmt"
 	       "logplexc"
+	       "net/http"
 	       "time"
 	)
 
+	// Set up an http client
+	client := *http.DefaultClient
+	client.Transport = &http.Transport{
+		TLSClientConfig: &tls.Config{},
+	}
+
 	// Set up Logplex Client
 	cfg := logplexc.Config{
-		Logplex:    *logplexUrl,
-		Token:      *logplexToken,
-		HttpClient: *http.DefaultClient,
+		Logplex:            *logplexUrl,
+		HttpClient:         client,
+		RequestSizeTrigger: 100 * KB,
+		Concurrency:        3,
+		TargetLogLatency:   3 * time.Second,
+		Token:              "my-token",
 	}
 
-	cl := logplexc.NewClient(&cfg)
+	cl, err := logplexc.NewClient(&cfg)
 	procId := "Pid, or whatever"
-	stats := client.BufferMessage(time.Now(), procId, []byte(messageBytes))
-	// (Buffer more messages as one sees fit)
-
-	// .BufferMessage and .Statistics returns statistics for
-	// monitoring or deciding when to begin a Post.
-	fmt.Printf("Framed: %d\n", stats.NumberFramed)
-
-	resp, err := cl.PostMessages()
+	err := client.BufferMessage(time.Now(), procId, []byte(messageBytes))
 	if err != nil {
-		fmt.Printf("Error: %v\n", err)
+		fmt.Printf("Couldn't buffer message: %v", err)
 	}
-
-	// Must close resp.Body
-	resp.Body.Close()
 ```
-
-PostMessages() is synchronous and slow.  It is also intended to be
-safe under concurrent access (see bSwapLock) so that with only brief
-contention one can also call BufferMessage in parallel.
