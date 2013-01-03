@@ -201,6 +201,7 @@ func (m *Client) syncWorker() {
 	resp, err := m.c.Post(&b)
 	if err != nil {
 		m.statReqErr(&b.MiniStats)
+		return
 	}
 
 	defer resp.Body.Close()
