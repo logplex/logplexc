@@ -128,11 +128,7 @@ func NewClient(cfg *Config) (*Client, error) {
 					return
 				}
 
-				// Avoid sending empty requests
-				s := m.c.Statistics()
-				if s.NumberFramed > 0 {
-					go m.syncWorker()
-				}
+				go m.syncWorker()
 			}
 		}()
 	}
@@ -181,6 +177,11 @@ func (m *Client) syncWorker() {
 	defer atomic.AddInt32(&m.Stats.Concurrency, -1)
 
 	b := m.c.SwapBundle()
+
+	// Avoid sending empty requests
+	if b.NumberFramed <= 0 {
+		return
+	}
 
 	// Check if there are any worker tokens available. If not,
 	// then just abort after recording drop statistics.
