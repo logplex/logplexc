@@ -44,6 +44,19 @@ type Stats struct {
 	SuccessRequests uint64
 }
 
+type TimeTriggerBehavior byte
+
+const (
+	// Carefully choose the zero-value so it is a reasonable
+	// default, so that a user requesting the other behaviors --
+	// which do not need a time -- can write things like:
+	// TimeTrigger{Behavior: TimeTriggerImmediate} without
+	// specifying a Period.
+	TimeTriggerPeriodic TimeTriggerBehavior = iota
+	TimeTriggerImmediate
+	TimeTriggerNever
+)
+
 type Client struct {
 	Stats
 	statLock sync.Mutex
@@ -58,8 +71,9 @@ type Client struct {
 	// Threshold of logplex request size to trigger POST.
 	RequestSizeTrigger int
 
-	// For forcing periodic posting of low-activity logs.
-	ticker *time.Ticker
+	// For implementing timely flushing of log buffers.
+	timeTrigger TimeTriggerBehavior
+	ticker      *time.Ticker
 
 	// Closed when cleaning up
 	finalize chan bool
@@ -71,7 +85,11 @@ type Config struct {
 	HttpClient         http.Client
 	RequestSizeTrigger int
 	Concurrency        int
-	TargetLogLatency   time.Duration
+	Period             time.Duration
+
+	// Optional: Can be set for advanced behaviors like triggering
+	// Never or Immediately.
+	TimeTrigger TimeTriggerBehavior
 }
 
 func NewClient(cfg *Config) (*Client, error) {
@@ -86,11 +104,6 @@ func NewClient(cfg *Config) (*Client, error) {
 		return nil, err
 	}
 
-	if cfg.TargetLogLatency < 0 {
-		return nil, errors.New("logplexc.Client: negative target " +
-			"latency not allowed")
-	}
-
 	m := Client{
 		c:                  c,
 		finalize:           make(chan bool),
@@ -98,10 +111,28 @@ func NewClient(cfg *Config) (*Client, error) {
 		RequestSizeTrigger: cfg.RequestSizeTrigger,
 	}
 
-	// If duration is zero, don't bother starting the ticker; a
-	// special code path for a nil ticker will send immediately.
-	if cfg.TargetLogLatency > 0 {
-		m.ticker = time.NewTicker(cfg.TargetLogLatency)
+	// Handle determining m.timeTrigger.  This complexity seems
+	// reasonable to allow the user to get some input checking
+	// (negative Periods) and to get TimeTriggerImmediate by
+	// passing a zero-duration period (TimeTriggerImmediate is
+	// still useful for internal bookkeeping).
+	switch cfg.TimeTrigger {
+	case TimeTriggerPeriodic:
+		if cfg.Period < 0 {
+			return nil, errors.New(
+				"logplexc.Client: negative target " +
+					"latency not allowed")
+		} else if cfg.Period == 0 {
+			// Rewrite a zero-duration period into an
+			// immediate flush.
+			m.timeTrigger = TimeTriggerImmediate
+		} else if cfg.Period > 0 {
+			m.timeTrigger = TimeTriggerPeriodic
+		} else {
+			panic("bug")
+		}
+	default:
+		m.timeTrigger = cfg.TimeTrigger
 	}
 
 	// Supply tokens to the buckets.
@@ -115,9 +146,10 @@ func NewClient(cfg *Config) (*Client, error) {
 		}
 	}()
 
-	// Periodic log-sending ticker for responsive low-volume
-	// logging.
-	if m.ticker != nil {
+	// Set up the time-based log flushing, if requested.
+	if m.timeTrigger == TimeTriggerPeriodic {
+		m.ticker = time.NewTicker(cfg.Period)
+
 		go func() {
 			for {
 				// Wait for a while to do work, or to
@@ -157,7 +189,8 @@ func (m *Client) BufferMessage(
 	defer m.statLock.Unlock()
 
 	s := m.c.BufferMessage(when, procId, log)
-	if s.Buffered >= m.RequestSizeTrigger || m.ticker == nil {
+	if s.Buffered >= m.RequestSizeTrigger ||
+		m.timeTrigger == TimeTriggerImmediate {
 		go m.syncWorker()
 	}
 
