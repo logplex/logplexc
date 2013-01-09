@@ -31,7 +31,7 @@ One might use it something like this:
 		HttpClient:         client,
 		RequestSizeTrigger: 100 * KB,
 		Concurrency:        3,
-		TargetLogLatency:   3 * time.Second,
+		Period:             3 * time.Second,
 		Token:              "my-token",
 	}
 
