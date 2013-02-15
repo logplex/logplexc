@@ -66,7 +66,7 @@ type Client struct {
 	// Concurrency control of POST workers: the current level of
 	// concurrency, and a token bucket channel.
 	concurrency int32
-	bucket      chan bool
+	bucket      chan struct{}
 
 	// Threshold of logplex request size to trigger POST.
 	RequestSizeTrigger int
@@ -76,7 +76,7 @@ type Client struct {
 	ticker      *time.Ticker
 
 	// Closed when cleaning up
-	finalize chan bool
+	finalize chan struct{}
 }
 
 type Config struct {
@@ -106,8 +106,8 @@ func NewClient(cfg *Config) (*Client, error) {
 
 	m := Client{
 		c:                  c,
-		finalize:           make(chan bool),
-		bucket:             make(chan bool),
+		finalize:           make(chan struct{}),
+		bucket:             make(chan struct{}),
 		RequestSizeTrigger: cfg.RequestSizeTrigger,
 	}
 
@@ -142,7 +142,7 @@ func NewClient(cfg *Config) (*Client, error) {
 	// responsible for re-inserting tokens.
 	go func() {
 		for i := 0; i < cfg.Concurrency; i += 1 {
-			m.bucket <- true
+			m.bucket <- struct{}{}
 		}
 	}()
 
@@ -223,7 +223,7 @@ func (m *Client) syncWorker() {
 		// When exiting, free up the token for use by another
 		// worker.
 		defer func() {
-			m.bucket <- true
+			m.bucket <- struct{}{}
 		}()
 	default:
 		m.statReqDrop(&b.MiniStats)
