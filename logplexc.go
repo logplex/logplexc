@@ -156,7 +156,7 @@ func NewClient(cfg *Config) (*Client, error) {
 				// exit
 				select {
 				case <-m.ticker.C:
-				case _, _ = <-m.finalize:
+				case <-m.finalize:
 					return
 				}
 
