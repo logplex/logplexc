@@ -175,7 +175,7 @@ func (m *Client) Close() {
 }
 
 func (m *Client) BufferMessage(
-	when time.Time, procId string, log []byte) error {
+	when time.Time, host string, procId string, log []byte) error {
 
 	select {
 	case _, _ = <-m.finalize:
@@ -185,7 +185,7 @@ func (m *Client) BufferMessage(
 		// no-op
 	}
 
-	s := m.c.BufferMessage(when, procId, log)
+	s := m.c.BufferMessage(when, host, procId, log)
 	if s.Buffered >= m.RequestSizeTrigger ||
 		m.timeTrigger == TimeTriggerImmediate {
 		m.maybeWork()
