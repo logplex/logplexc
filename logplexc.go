@@ -160,7 +160,7 @@ func NewClient(cfg *Config) (*Client, error) {
 					return
 				}
 
-				go m.syncWorker()
+				m.maybeWork()
 			}
 		}()
 	}
@@ -185,13 +185,10 @@ func (m *Client) BufferMessage(
 		// no-op
 	}
 
-	m.statLock.Lock()
-	defer m.statLock.Unlock()
-
 	s := m.c.BufferMessage(when, procId, log)
 	if s.Buffered >= m.RequestSizeTrigger ||
 		m.timeTrigger == TimeTriggerImmediate {
-		go m.syncWorker()
+		m.maybeWork()
 	}
 
 	return nil
@@ -205,7 +202,7 @@ func (m *Client) Statistics() (s Stats) {
 	return s
 }
 
-func (m *Client) syncWorker() {
+func (m *Client) maybeWork() {
 	atomic.AddInt32(&m.Stats.Concurrency, 1)
 	defer atomic.AddInt32(&m.Stats.Concurrency, -1)
 
@@ -220,18 +217,22 @@ func (m *Client) syncWorker() {
 	// then just abort after recording drop statistics.
 	select {
 	case <-m.bucket:
-		// When exiting, free up the token for use by another
-		// worker.
-		defer func() {
-			m.bucket <- struct{}{}
-		}()
+		go m.syncWorker(&b)
+
 	default:
 		m.statReqDrop(&b.MiniStats)
-		return
 	}
+}
+
+func (m *Client) syncWorker(b *Bundle) {
+	// When exiting, free up the token for use by another
+	// worker.
+	defer func() {
+		m.bucket <- struct{}{}
+	}()
 
 	// Post to logplex.
-	resp, err := m.c.Post(&b)
+	resp, err := m.c.Post(b)
 	if err != nil {
 		m.statReqErr(&b.MiniStats)
 		return
@@ -245,8 +246,6 @@ func (m *Client) syncWorker() {
 	} else {
 		m.statReqSuccess(&b.MiniStats)
 	}
-
-	return
 }
 
 func (m *Client) statReqTotalUnsync(s *MiniStats) {
