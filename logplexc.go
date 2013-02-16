@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -221,6 +222,11 @@ func (m *Client) maybeWork() {
 
 	default:
 		m.statReqDrop(&b.MiniStats)
+
+		// In GOMAXPROCS=1 cases, tight loops can starve out
+		// any of the workers predictably and seemingly
+		// forever.
+		runtime.Gosched()
 	}
 }
 
