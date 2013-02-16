@@ -178,7 +178,7 @@ func (m *Client) BufferMessage(
 	when time.Time, host string, procId string, log []byte) error {
 
 	select {
-	case _, _ = <-m.finalize:
+	case <-m.finalize:
 		return errors.New("Failed trying to buffer a message: " +
 			"client already Closed")
 	default:
