@@ -135,7 +135,11 @@ func (c *MiniClient) Post(b *Bundle) (*http.Response, error) {
 	c.reqInFlight.Add(1)
 	defer c.reqInFlight.Done()
 
-	req, _ := http.NewRequest("POST", c.Logplex.String(), &b.outbox)
+	req, err := http.NewRequest("POST", c.Logplex.String(), &b.outbox)
+	if err != nil {
+		return nil, err
+	}
+
 	req.Header.Add("Content-Type", "application/logplex-1")
 	req.Header.Add("Logplex-Msg-Count",
 		strconv.FormatUint(b.NumberFramed, 10))
