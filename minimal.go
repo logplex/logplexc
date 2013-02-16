@@ -122,11 +122,13 @@ func (c *MiniClient) SwapBundle() Bundle {
 	c.bSwapLock.Lock()
 	defer c.bSwapLock.Unlock()
 
-	b := *c.b
-	c.b.outbox = bytes.Buffer{}
-	c.b.MiniStats = MiniStats{}
+	var newB Bundle
+	var oldB Bundle
 
-	return b
+	oldB = *c.b
+	c.b = &newB
+
+	return oldB
 }
 
 func (c *MiniClient) Post(b *Bundle) (*http.Response, error) {
