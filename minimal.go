@@ -105,7 +105,7 @@ func (c *MiniClient) BufferMessage(
 
 	ts := when.UTC().Format(time.RFC3339)
 	syslogPrefix := "<134>1 " + ts + " " + host + " " +
-		c.Token + " " + procId + " - "
+		c.Token + " " + procId + " - - "
 	msgLen := len(syslogPrefix) + len(log)
 
 	fmt.Fprintf(&c.b.outbox, "%d %s%s", msgLen, syslogPrefix, log)
