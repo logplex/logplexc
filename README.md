@@ -36,8 +36,10 @@ One might use it something like this:
 	}
 
 	cl, err := logplexc.NewClient(&cfg)
-	procId := "Pid, or whatever"
-	err := client.BufferMessage(time.Now(), procId, []byte(messageBytes))
+	procId := "pid-or-whatever"
+	host := "host"
+
+	err := client.BufferMessage(time.Now(), host, procId, []byte(messageBytes))
 	if err != nil {
 		fmt.Printf("Couldn't buffer message: %v", err)
 	}
