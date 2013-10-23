@@ -98,15 +98,15 @@ func (c *MiniClient) Statistics() MiniStats {
 // can cause problems for themselves only.
 func (c *MiniClient) BufferMessage(
 	when time.Time, host string, procId string, log []byte) MiniStats {
-	// Avoid racing against other operations that may want to swap
-	// out client's current bundle.
-	c.bSwapLock.Lock()
-	defer c.bSwapLock.Unlock()
-
 	ts := when.UTC().Format(time.RFC3339)
 	syslogPrefix := "<134>1 " + ts + " " + host + " " +
 		c.Token + " " + procId + " - - "
 	msgLen := len(syslogPrefix) + len(log)
+
+	// Avoid racing against other operations that may want to swap
+	// out client's current bundle.
+	c.bSwapLock.Lock()
+	defer c.bSwapLock.Unlock()
 
 	fmt.Fprintf(&c.b.outbox, "%d %s%s", msgLen, syslogPrefix, log)
 	c.b.NumberFramed += 1
