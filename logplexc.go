@@ -77,7 +77,8 @@ type Client struct {
 	ticker      *time.Ticker
 
 	// Closed when cleaning up
-	finalize chan struct{}
+	finalize     chan struct{}
+	finalizeDone sync.WaitGroup
 }
 
 type Config struct {
@@ -141,9 +142,16 @@ func NewClient(cfg *Config) (*Client, error) {
 	// This goroutine exits when it has supplied all of the
 	// initial tokens: that's because worker goroutines are
 	// responsible for re-inserting tokens.
+	m.finalizeDone.Add(1)
 	go func() {
+		defer func() { m.finalizeDone.Done() }()
+
 		for i := 0; i < cfg.Concurrency; i += 1 {
-			m.bucket <- struct{}{}
+			select {
+			case m.bucket <- struct{}{}:
+			case <-m.finalize:
+				return
+			}
 		}
 	}()
 
@@ -151,7 +159,10 @@ func NewClient(cfg *Config) (*Client, error) {
 	if m.timeTrigger == TimeTriggerPeriodic {
 		m.ticker = time.NewTicker(cfg.Period)
 
+		m.finalizeDone.Add(1)
 		go func() {
+			defer func() { m.finalizeDone.Done() }()
+
 			for {
 				// Wait for a while to do work, or to
 				// exit
@@ -173,6 +184,7 @@ func (m *Client) Close() {
 	// Clean up otherwise immortal ticker goroutine
 	m.ticker.Stop()
 	close(m.finalize)
+	m.finalizeDone.Wait()
 }
 
 func (m *Client) BufferMessage(
@@ -218,6 +230,7 @@ func (m *Client) maybeWork() {
 	// then just abort after recording drop statistics.
 	select {
 	case <-m.bucket:
+		m.finalizeDone.Add(1)
 		go m.syncWorker(&b)
 
 	default:
@@ -231,10 +244,18 @@ func (m *Client) maybeWork() {
 }
 
 func (m *Client) syncWorker(b *Bundle) {
+	defer func() { m.finalizeDone.Done() }()
+
 	// When exiting, free up the token for use by another
 	// worker.
 	defer func() {
-		m.bucket <- struct{}{}
+		select {
+		case m.bucket <- struct{}{}:
+			// Made token available.
+		case <-m.finalize:
+			// Client is shutting down, allow termination
+			// from the closed finalize.
+		}
 	}()
 
 	// Post to logplex.

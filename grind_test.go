@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -64,6 +65,10 @@ func BenchmarkStartup(b *testing.B) {
 		}
 
 		c.Close()
+		if runtime.NumGoroutine() > 1000 {
+			// Use panic to emit goroutine trace output.
+			panic("BenchmarkStartup detects maybe-goroutine leak.")
+		}
 	}
 }
 
@@ -108,6 +113,13 @@ comparison only.`)
 	for i := 0; i < inputConcur; i += 1 {
 		<-done
 	}
+
+	// Stop the timer before c.Close is called by 'defer', as
+	// .Close is synchronous and will throw off numbers of the
+	// intended purpose of the microbenchmarks (BenchmarkStartup
+	// does account for .Close() in absence of slower networks
+	// being in the way).
+	b.StopTimer()
 }
 
 func NewNoopClient(f interface {
