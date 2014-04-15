@@ -66,19 +66,17 @@ type Client struct {
 
 	// Concurrency control of POST workers: the current level of
 	// concurrency, and a token bucket channel.
-	concurrency int32
-	bucket      chan struct{}
+	bucket chan struct{}
 
 	// Threshold of logplex request size to trigger POST.
 	RequestSizeTrigger int
 
 	// For implementing timely flushing of log buffers.
-	timeTrigger TimeTriggerBehavior
-	ticker      *time.Ticker
+	timeTrigger    TimeTriggerBehavior
+	ticker         *time.Ticker
+	tickerShutdown chan struct{}
 
-	// Closed when cleaning up
-	finalize     chan struct{}
-	finalizeDone sync.WaitGroup
+	bucketDepth int
 }
 
 type Config struct {
@@ -108,7 +106,6 @@ func NewClient(cfg *Config) (*Client, error) {
 
 	m := Client{
 		c:                  c,
-		finalize:           make(chan struct{}),
 		bucket:             make(chan struct{}),
 		RequestSizeTrigger: cfg.RequestSizeTrigger,
 	}
@@ -137,42 +134,30 @@ func NewClient(cfg *Config) (*Client, error) {
 		m.timeTrigger = cfg.TimeTrigger
 	}
 
-	// Supply tokens to the buckets.
-	//
-	// This goroutine exits when it has supplied all of the
-	// initial tokens: that's because worker goroutines are
-	// responsible for re-inserting tokens.
-	m.finalizeDone.Add(1)
+	// Supply tokens to do work with bounded concurrency.
+	m.bucketDepth = cfg.Concurrency
 	go func() {
-		defer func() { m.finalizeDone.Done() }()
-
-		for i := 0; i < cfg.Concurrency; i += 1 {
-			select {
-			case m.bucket <- struct{}{}:
-			case <-m.finalize:
-				return
-			}
+		for i := 0; i < m.bucketDepth; i += 1 {
+			m.bucket <- struct{}{}
 		}
 	}()
 
 	// Set up the time-based log flushing, if requested.
 	if m.timeTrigger == TimeTriggerPeriodic {
 		m.ticker = time.NewTicker(cfg.Period)
+		m.tickerShutdown = make(chan struct{})
 
-		m.finalizeDone.Add(1)
 		go func() {
-			defer func() { m.finalizeDone.Done() }()
-
 			for {
 				// Wait for a while to do work, or to
-				// exit
+				// exit when the ticker is stopped
+				// when Close is called on the client.
 				select {
 				case <-m.ticker.C:
-				case <-m.finalize:
+					m.maybeWork()
+				case <-m.tickerShutdown:
 					return
 				}
-
-				m.maybeWork()
 			}
 		}()
 	}
@@ -181,22 +166,23 @@ func NewClient(cfg *Config) (*Client, error) {
 }
 
 func (m *Client) Close() {
-	// Clean up otherwise immortal ticker goroutine
+	// Clean up otherwise immortal ticker goroutine.
 	m.ticker.Stop()
-	close(m.finalize)
-	m.finalizeDone.Wait()
+	m.tickerShutdown <- struct{}{}
+
+	// Make an attempt to send the final buffer, if any.
+	m.maybeWork()
+
+	// Drain all work tokens.
+	for i := 0; i < m.bucketDepth; i += 1 {
+		<-m.bucket
+	}
+
+	close(m.bucket)
 }
 
 func (m *Client) BufferMessage(
 	when time.Time, host string, procId string, log []byte) error {
-
-	select {
-	case <-m.finalize:
-		return errors.New("Failed trying to buffer a message: " +
-			"client already Closed")
-	default:
-		// no-op
-	}
 
 	s := m.c.BufferMessage(when, host, procId, log)
 	if s.Buffered >= m.RequestSizeTrigger ||
@@ -230,9 +216,7 @@ func (m *Client) maybeWork() {
 	// then just abort after recording drop statistics.
 	select {
 	case <-m.bucket:
-		m.finalizeDone.Add(1)
-		go m.syncWorker(&b)
-
+		go m.postBundle(&b)
 	default:
 		m.statReqDrop(&b.MiniStats)
 
@@ -243,20 +227,10 @@ func (m *Client) maybeWork() {
 	}
 }
 
-func (m *Client) syncWorker(b *Bundle) {
-	defer func() { m.finalizeDone.Done() }()
-
+func (m *Client) postBundle(b *Bundle) {
 	// When exiting, free up the token for use by another
 	// worker.
-	defer func() {
-		select {
-		case m.bucket <- struct{}{}:
-			// Made token available.
-		case <-m.finalize:
-			// Client is shutting down, allow termination
-			// from the closed finalize.
-		}
-	}()
+	defer func() { m.bucket <- struct{}{} }()
 
 	// Post to logplex.
 	resp, err := m.c.Post(b)
