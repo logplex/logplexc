@@ -36,7 +36,7 @@ func (n *NoopTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 var BogusLogplexUrl url.URL
 
 func init() {
-	url, err := url.Parse("https://locahost:23456")
+	url, err := url.Parse("https://token:a-token@locahost:23456")
 	if err != nil {
 		log.Fatalf("Could not parse url: %v", err)
 	}
@@ -55,7 +55,6 @@ func BenchmarkStartup(b *testing.B) {
 		RequestSizeTrigger: 100,
 		Concurrency:        3,
 		Period:             3 * time.Second,
-		Token:              "a-token",
 	}
 
 	for i := 0; i < b.N; i += 1 {
@@ -135,7 +134,6 @@ func NewNoopClient(f interface {
 		RequestSizeTrigger: sizeTrigger,
 		Concurrency:        3,
 		Period:             3 * time.Second,
-		Token:              "a-token",
 	}
 
 	c, err := NewClient(&cfg)
@@ -163,31 +161,19 @@ func BenchmarkFanInOut(b *testing.B) {
 }
 
 // Try logging to a real, live endpoint URL and token, specified by
-// LOGPLEX_URL and LOGPLEX_TOKEN.
+// LOGPLEX_URL.
 //
 // This is deceptively fast because dropping will be very common, even
 // on localhost.
 func BenchmarkToUrl(b *testing.B) {
 	b.StopTimer()
 
-	if os.Getenv("LOGPLEX_URL") == "" ||
-		os.Getenv("LOGPLEX_TOKEN") == "" {
-		b.Fatal("Skipping, no LOGPLEX_URL and LOGPLEX_TOKEN " +
-			"environment variable set")
+	if os.Getenv("LOGPLEX_URL") == "" {
+		b.Fatal("Skipping, no LOGPLEX_URL environment variable set")
 		return
 	}
 
 	logplexUrl, err := url.Parse(os.Getenv("LOGPLEX_URL"))
-	if err != nil {
-		b.Fatalf("Could not parse logplex endpoint %q: %v",
-			os.Getenv("LOGPLEX_URL"), err)
-	}
-
-	token := os.Getenv("LOGPLEX_TOKEN")
-	if token == "" {
-		b.Fatalf("Invalid LOGPLEX_TOKEN set: %q", token)
-	}
-
 	if err != nil {
 		b.Fatalf("Could not parse logplex endpoint %q: %v",
 			os.Getenv("LOGPLEX_URL"), err)
@@ -206,7 +192,6 @@ func BenchmarkToUrl(b *testing.B) {
 		RequestSizeTrigger: 100 * KB,
 		Concurrency:        3,
 		Period:             3 * time.Second,
-		Token:              token,
 	}
 
 	c, err := NewClient(&cfg)
