@@ -100,7 +100,8 @@ comparison only.`)
 	for i := 0; i < inputConcur; i += 1 {
 		go func() {
 			for i := 0; i < perGoroutinePayload; i += 1 {
-				c.BufferMessage(t, "UK", "CharlesDickens", log)
+				c.BufferMessage(134, t, "UK", "CharlesDickens",
+					log)
 			}
 
 			done <- true

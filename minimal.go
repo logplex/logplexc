@@ -105,10 +105,11 @@ func (c *MiniClient) Statistics() MiniStats {
 // context, so at worst it seems a buggy or malicious emitter of logs
 // can cause problems for themselves only.
 func (c *MiniClient) BufferMessage(
-	when time.Time, host string, procId string, log []byte) MiniStats {
+	priority int, when time.Time, host string, procId string,
+	log []byte) MiniStats {
 	ts := when.UTC().Format(time.RFC3339)
-	syslogPrefix := "<134>1 " + ts + " " + host + " " +
-		c.token + " " + procId + " - - "
+	syslogPrefix := "<" + strconv.Itoa(priority) + ">1 " + ts + " " +
+		host + " " + c.token + " " + procId + " - - "
 	msgLen := len(syslogPrefix) + len(log)
 
 	// Avoid racing against other operations that may want to swap
