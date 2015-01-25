@@ -1,4 +1,31 @@
-// A client implementation that includes concurrency and dropping.
+/*
+Package logplexc provides Logplex clients that can be linked into
+other Go programs.
+
+Most users will want to use logplexc.Client, which implements a
+concurrent client, including periodic flushing, dropping, statistics
+accumulation, and request-level parallelism.  logplexc.Client is built
+with logplexc.MiniClient.
+
+To use the client, call NewClient with a configuration structure:
+
+	cfg := logplexc.Config{
+		Logplex:	    "https://t:123@my.logplex.example.com",
+		HttpClient:	    client,
+		RequestSizeTrigger: 100 * KB,
+		Concurrency:	    3,
+		Period:		    3 * time.Second,
+	}
+
+	c, err := logplexc.NewClient(&cfg)
+	defer c.Close()
+	// Messages will be periodically flushed.
+	c.BufferMessage(...)
+
+Those with advanced needs will want to use the low level
+logplexc.MiniClient, which implements log formatting, buffering, and
+HTTP POSTing.
+*/
 package logplexc
 
 import (
@@ -58,8 +85,10 @@ const (
 	TimeTriggerNever
 )
 
+// A Logplex embeddable client implementation that includes
+// concurrency, dropping, and statistics gathering.
 type Client struct {
-	Stats
+	s        Stats
 	statLock sync.Mutex
 
 	c *MiniClient
@@ -69,7 +98,7 @@ type Client struct {
 	bucket chan struct{}
 
 	// Threshold of logplex request size to trigger POST.
-	RequestSizeTrigger int
+	requestSizeTrigger int
 
 	// For implementing timely flushing of log buffers.
 	timeTrigger    TimeTriggerBehavior
@@ -105,7 +134,7 @@ func NewClient(cfg *Config) (*Client, error) {
 	m := Client{
 		c:                  c,
 		bucket:             make(chan struct{}),
-		RequestSizeTrigger: cfg.RequestSizeTrigger,
+		requestSizeTrigger: cfg.RequestSizeTrigger,
 	}
 
 	// Handle determining m.timeTrigger.  This complexity seems
@@ -184,7 +213,7 @@ func (m *Client) BufferMessage(
 	log []byte) error {
 
 	s := m.c.BufferMessage(priority, when, host, procId, log)
-	if s.Buffered >= m.RequestSizeTrigger ||
+	if s.Buffered >= m.requestSizeTrigger ||
 		m.timeTrigger == TimeTriggerImmediate {
 		m.maybeWork()
 	}
@@ -196,13 +225,13 @@ func (m *Client) Statistics() (s Stats) {
 	m.statLock.Lock()
 	defer m.statLock.Unlock()
 
-	s = m.Stats
+	s = m.s
 	return s
 }
 
 func (m *Client) maybeWork() {
-	atomic.AddInt32(&m.Stats.Concurrency, 1)
-	defer atomic.AddInt32(&m.Stats.Concurrency, -1)
+	atomic.AddInt32(&m.s.Concurrency, 1)
+	defer atomic.AddInt32(&m.s.Concurrency, -1)
 
 	b := m.c.SwapBundle()
 
@@ -249,8 +278,8 @@ func (m *Client) postBundle(b *Bundle) {
 }
 
 func (m *Client) statReqTotalUnsync(s *MiniStats) {
-	m.Total += s.NumberFramed
-	m.TotalRequests += 1
+	m.s.Total += s.NumberFramed
+	m.s.TotalRequests += 1
 }
 
 func (m *Client) statReqSuccess(s *MiniStats) {
@@ -258,8 +287,8 @@ func (m *Client) statReqSuccess(s *MiniStats) {
 	defer m.statLock.Unlock()
 	m.statReqTotalUnsync(s)
 
-	m.Successful += s.NumberFramed
-	m.SuccessRequests += 1
+	m.s.Successful += s.NumberFramed
+	m.s.SuccessRequests += 1
 }
 
 func (m *Client) statReqErr(s *MiniStats) {
@@ -267,8 +296,8 @@ func (m *Client) statReqErr(s *MiniStats) {
 	defer m.statLock.Unlock()
 	m.statReqTotalUnsync(s)
 
-	m.Cancelled += s.NumberFramed
-	m.CancelRequests += 1
+	m.s.Cancelled += s.NumberFramed
+	m.s.CancelRequests += 1
 }
 
 func (m *Client) statReqRej(s *MiniStats) {
@@ -276,8 +305,8 @@ func (m *Client) statReqRej(s *MiniStats) {
 	defer m.statLock.Unlock()
 	m.statReqTotalUnsync(s)
 
-	m.Rejected += s.NumberFramed
-	m.RejectRequests += 1
+	m.s.Rejected += s.NumberFramed
+	m.s.RejectRequests += 1
 }
 
 func (m *Client) statReqDrop(s *MiniStats) {
@@ -285,6 +314,6 @@ func (m *Client) statReqDrop(s *MiniStats) {
 	defer m.statLock.Unlock()
 	m.statReqTotalUnsync(s)
 
-	m.Dropped += s.NumberFramed
-	m.DroppedRequests += 1
+	m.s.Dropped += s.NumberFramed
+	m.s.DroppedRequests += 1
 }

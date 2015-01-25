@@ -11,37 +11,34 @@ import (
 	"time"
 )
 
-// Running statistics on Client operation
+// Running statistics on MiniClient operation
 type MiniStats struct {
 	NumberFramed uint64
 	Buffered     int
 }
 
-// Configuration of a Client.
-//
-// The configuration is by-value to prevent most kinds of accidental
-// sharing of modifications between clients.  Also, modification of
-// the URL is compulsary in the constructor, and it's not desirable to
-// modify the version passed by the user as a side effect of
-// constructing a client instance.
+// Configuration of a MiniClient.
 type MiniConfig struct {
+	// The configuration is by-value to prevent most kinds of accidental
+	// sharing of modifications between clients.  Also, modification of
+	// the URL is compulsary in the constructor, and it's not desirable to
+	// modify the version passed by the user as a side effect of
+	// constructing a client instance.
 	Logplex    url.URL
 	HttpClient http.Client
 }
 
-// A bundle of messages that are either being accrued to or in the
-// progress of being sent.
-//
-// This is packaged into its own type as it is handy to be able to
-// manipulate bundles to pipeline buffering new logs to be written
-// with bundles that have I/O in progress.
+// A bundle of log messages.  Bundles are used to act as buffers of
+// multiple log records as well as the unit of work for submittted to
+// Logplex.
 type Bundle struct {
 	MiniStats
 	outbox bytes.Buffer
 }
 
-// Client context: generally, at a minimum, one should exist per
-// Logplex credential serviced by the program.
+// MiniClient implements a low-level, synchronous Logplex client.  It
+// can format messages and gather statistics.  Most uses of logplexc
+// are anticipated to use logplexc.Client.
 type MiniClient struct {
 	// Configuration that should not be mutated after creation
 	MiniConfig
@@ -94,16 +91,13 @@ func (c *MiniClient) Statistics() MiniStats {
 	return unsyncStats(c.b)
 }
 
-// Buffer a message for best-effort delivery to Logplex
+// Buffer a message for best-effort delivery to Logplex.
 //
 // Return the critical statistics on what has been buffered so far so
 // that the caller can opt to PostMessages() and empty the buffer.
 //
 // No effort is expended to clean up bad bytes disallowed by syslog,
-// as Logplex has a length-prefixed format and the intention that each
-// Client will only process messages for a single user/security
-// context, so at worst it seems a buggy or malicious emitter of logs
-// can cause problems for themselves only.
+// as Logplex has a length-prefixed format.
 func (c *MiniClient) BufferMessage(
 	priority int, when time.Time, host string, procId string,
 	log []byte) MiniStats {
@@ -124,10 +118,10 @@ func (c *MiniClient) BufferMessage(
 	return unsyncStats(c.b)
 }
 
+// Swap out the bundle of logs for a fresh one, so that buffering can
+// continue again immediately.  It's the caller's perogative to submit
+// the returned, completed Bundle to logplex.
 func (c *MiniClient) SwapBundle() Bundle {
-	// Swap out the bundle for a fresh one, so that buffering can
-	// continue again immediately.  It's the caller's perogative
-	// to submit the Bundle to logplex.
 	c.bSwapLock.Lock()
 	defer c.bSwapLock.Unlock()
 
@@ -140,6 +134,7 @@ func (c *MiniClient) SwapBundle() Bundle {
 	return oldB
 }
 
+// Send a Bundle of logs to Logplex via HTTP POST.
 func (c *MiniClient) Post(b *Bundle) (*http.Response, error) {
 	// Record that a request is in progress so that a clean
 	// shutdown can wait for it to complete.
