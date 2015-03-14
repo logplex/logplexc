@@ -193,9 +193,11 @@ func NewClient(cfg *Config) (*Client, error) {
 }
 
 func (m *Client) Close() {
-	// Clean up otherwise immortal ticker goroutine.
-	m.ticker.Stop()
-	m.tickerShutdown <- struct{}{}
+	if m.timeTrigger == TimeTriggerPeriodic {
+		// Clean up otherwise immortal ticker goroutine.
+		m.ticker.Stop()
+		m.tickerShutdown <- struct{}{}
+	}
 
 	// Make an attempt to send the final buffer, if any.
 	m.maybeWork()
