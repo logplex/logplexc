@@ -11,13 +11,13 @@ import (
 	"time"
 )
 
-// Running statistics on MiniClient operation
+// MiniStats represents statistics on MiniClient operation.
 type MiniStats struct {
 	NumberFramed uint64
 	Buffered     int
 }
 
-// Configuration of a MiniClient.
+// MiniConfig represents configuration of a MiniClient.
 type MiniConfig struct {
 	// The configuration is by-value to prevent most kinds of accidental
 	// sharing of modifications between clients.  Also, modification of
@@ -25,11 +25,11 @@ type MiniConfig struct {
 	// modify the version passed by the user as a side effect of
 	// constructing a client instance.
 	Logplex    url.URL
-	HttpClient http.Client
+	HTTPClient http.Client
 }
 
-// A bundle of log messages.  Bundles are used to act as buffers of
-// multiple log records as well as the unit of work for submittted to
+// Bundle represents bundle of log messages. Bundles are used to act as buffers
+// of multiple log records as well as the unit of work for submittted to
 // Logplex.
 type Bundle struct {
 	MiniStats
@@ -53,6 +53,7 @@ type MiniClient struct {
 	b         *Bundle
 }
 
+// NewMiniClient creates a new MiniClient based on a the given config.
 func NewMiniClient(cfg *MiniConfig) (client *MiniClient, err error) {
 	c := MiniClient{}
 
@@ -83,7 +84,7 @@ func unsyncStats(b *Bundle) MiniStats {
 	return b.MiniStats
 }
 
-// Copy the statistics structure embedded in the client.
+// Statistics copies the statistics structure embedded in the client.
 func (c *MiniClient) Statistics() MiniStats {
 	c.bSwapLock.Lock()
 	defer c.bSwapLock.Unlock()
@@ -91,7 +92,7 @@ func (c *MiniClient) Statistics() MiniStats {
 	return unsyncStats(c.b)
 }
 
-// Buffer a message for best-effort delivery to Logplex.
+// BufferMessage buffers a message for best-effort delivery to Logplex.
 //
 // Return the critical statistics on what has been buffered so far so
 // that the caller can opt to PostMessages() and empty the buffer.
@@ -99,11 +100,11 @@ func (c *MiniClient) Statistics() MiniStats {
 // No effort is expended to clean up bad bytes disallowed by syslog,
 // as Logplex has a length-prefixed format.
 func (c *MiniClient) BufferMessage(
-	priority int, when time.Time, host string, procId string,
+	priority int, when time.Time, host string, procID string,
 	log []byte) MiniStats {
 	ts := when.UTC().Format(time.RFC3339)
 	syslogPrefix := "<" + strconv.Itoa(priority) + ">1 " + ts + " " +
-		host + " " + c.token + " " + procId + " - - "
+		host + " " + c.token + " " + procID + " - - "
 	msgLen := len(syslogPrefix) + len(log)
 
 	// Avoid racing against other operations that may want to swap
@@ -112,13 +113,13 @@ func (c *MiniClient) BufferMessage(
 	defer c.bSwapLock.Unlock()
 
 	fmt.Fprintf(&c.b.outbox, "%d %s%s", msgLen, syslogPrefix, log)
-	c.b.NumberFramed += 1
+	c.b.NumberFramed++
 	c.b.Buffered = c.b.outbox.Len()
 
 	return unsyncStats(c.b)
 }
 
-// Swap out the bundle of logs for a fresh one, so that buffering can
+// SwapBundle swaps out the bundle of logs for a fresh one, so that buffering can
 // continue again immediately.  It's the caller's perogative to submit
 // the returned, completed Bundle to logplex.
 func (c *MiniClient) SwapBundle() Bundle {
@@ -134,7 +135,7 @@ func (c *MiniClient) SwapBundle() Bundle {
 	return oldB
 }
 
-// Send a Bundle of logs to Logplex via HTTP POST.
+// Post sends a Bundle of logs to Logplex via HTTP POST.
 func (c *MiniClient) Post(b *Bundle) (*http.Response, error) {
 	// Record that a request is in progress so that a clean
 	// shutdown can wait for it to complete.
@@ -150,7 +151,7 @@ func (c *MiniClient) Post(b *Bundle) (*http.Response, error) {
 	req.Header.Add("Logplex-Msg-Count",
 		strconv.FormatUint(b.NumberFramed, 10))
 
-	resp, err := c.HttpClient.Do(req)
+	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

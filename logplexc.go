@@ -85,7 +85,7 @@ const (
 	TimeTriggerNever
 )
 
-// A Logplex embeddable client implementation that includes
+// Client represents a Logplex embeddable client implementation that includes
 // concurrency, dropping, and statistics gathering.
 type Client struct {
 	s        Stats
@@ -108,9 +108,10 @@ type Client struct {
 	bucketDepth int
 }
 
+// Config represents a Client configuration
 type Config struct {
 	Logplex            url.URL
-	HttpClient         http.Client
+	HTTPClient         http.Client
 	RequestSizeTrigger int
 	Concurrency        int
 	Period             time.Duration
@@ -120,11 +121,12 @@ type Config struct {
 	TimeTrigger TimeTriggerBehavior
 }
 
+// NewClient returns a new logplex client based on the given config.
 func NewClient(cfg *Config) (*Client, error) {
 	c, err := NewMiniClient(
 		&MiniConfig{
 			Logplex:    cfg.Logplex,
-			HttpClient: cfg.HttpClient,
+			HTTPClient: cfg.HTTPClient,
 		})
 
 	if err != nil {
@@ -164,7 +166,7 @@ func NewClient(cfg *Config) (*Client, error) {
 	// Supply tokens to do work with bounded concurrency.
 	m.bucketDepth = cfg.Concurrency
 	go func() {
-		for i := 0; i < m.bucketDepth; i += 1 {
+		for i := 0; i < m.bucketDepth; i++ {
 			m.bucket <- struct{}{}
 		}
 	}()
@@ -192,6 +194,7 @@ func NewClient(cfg *Config) (*Client, error) {
 	return &m, nil
 }
 
+// Close closes connection and flush logs.
 func (m *Client) Close() {
 	if m.timeTrigger == TimeTriggerPeriodic {
 		// Clean up otherwise immortal ticker goroutine.
@@ -203,7 +206,7 @@ func (m *Client) Close() {
 	m.maybeWork()
 
 	// Drain all work tokens.
-	for i := 0; i < m.bucketDepth; i += 1 {
+	for i := 0; i < m.bucketDepth; i++ {
 		<-m.bucket
 	}
 
@@ -211,10 +214,10 @@ func (m *Client) Close() {
 }
 
 func (m *Client) BufferMessage(
-	priority int, when time.Time, host string, procId string,
+	priority int, when time.Time, host string, procID string,
 	log []byte) error {
 
-	s := m.c.BufferMessage(priority, when, host, procId, log)
+	s := m.c.BufferMessage(priority, when, host, procID, log)
 	if s.Buffered >= m.requestSizeTrigger ||
 		m.timeTrigger == TimeTriggerImmediate {
 		m.maybeWork()
@@ -281,7 +284,7 @@ func (m *Client) postBundle(b *Bundle) {
 
 func (m *Client) statReqTotalUnsync(s *MiniStats) {
 	m.s.Total += s.NumberFramed
-	m.s.TotalRequests += 1
+	m.s.TotalRequests++
 }
 
 func (m *Client) statReqSuccess(s *MiniStats) {
@@ -290,7 +293,7 @@ func (m *Client) statReqSuccess(s *MiniStats) {
 	m.statReqTotalUnsync(s)
 
 	m.s.Successful += s.NumberFramed
-	m.s.SuccessRequests += 1
+	m.s.SuccessRequests++
 }
 
 func (m *Client) statReqErr(s *MiniStats) {
@@ -299,7 +302,7 @@ func (m *Client) statReqErr(s *MiniStats) {
 	m.statReqTotalUnsync(s)
 
 	m.s.Cancelled += s.NumberFramed
-	m.s.CancelRequests += 1
+	m.s.CancelRequests++
 }
 
 func (m *Client) statReqRej(s *MiniStats) {
@@ -308,7 +311,7 @@ func (m *Client) statReqRej(s *MiniStats) {
 	m.statReqTotalUnsync(s)
 
 	m.s.Rejected += s.NumberFramed
-	m.s.RejectRequests += 1
+	m.s.RejectRequests++
 }
 
 func (m *Client) statReqDrop(s *MiniStats) {
@@ -317,5 +320,5 @@ func (m *Client) statReqDrop(s *MiniStats) {
 	m.statReqTotalUnsync(s)
 
 	m.s.Dropped += s.NumberFramed
-	m.s.DroppedRequests += 1
+	m.s.DroppedRequests++
 }

@@ -33,7 +33,7 @@ func (n *NoopTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	return &resp, nil
 }
 
-var BogusLogplexUrl url.URL
+var BogusLogplexURL url.URL
 
 func init() {
 	url, err := url.Parse("https://token:a-token@locahost:23456")
@@ -41,7 +41,7 @@ func init() {
 		log.Fatalf("Could not parse url: %v", err)
 	}
 
-	BogusLogplexUrl = *url
+	BogusLogplexURL = *url
 }
 
 // Try creating and tearing down lots of clients
@@ -50,14 +50,14 @@ func BenchmarkStartup(b *testing.B) {
 	client.Transport = &NoopTripper{}
 
 	cfg := Config{
-		Logplex:            BogusLogplexUrl,
-		HttpClient:         client,
+		Logplex:            BogusLogplexURL,
+		HTTPClient:         client,
 		RequestSizeTrigger: 100,
 		Concurrency:        3,
 		Period:             3 * time.Second,
 	}
 
-	for i := 0; i < b.N; i += 1 {
+	for i := 0; i < b.N; i++ {
 		c, err := NewClient(&cfg)
 		if err != nil {
 			b.Fatalf("Could not create Client: %v", err)
@@ -97,11 +97,10 @@ comparison only.`)
 	b.StartTimer()
 
 	// Split up the work and do it in some number of goroutines
-	for i := 0; i < inputConcur; i += 1 {
+	for i := 0; i < inputConcur; i++ {
 		go func() {
-			for i := 0; i < perGoroutinePayload; i += 1 {
-				c.BufferMessage(134, t, "UK", "CharlesDickens",
-					log)
+			for i := 0; i < perGoroutinePayload; i++ {
+				c.BufferMessage(134, t, "UK", "CharlesDickens", log)
 			}
 
 			done <- true
@@ -110,7 +109,7 @@ comparison only.`)
 
 	// Wait for the work to report as finished; otherwise the
 	// benchmark would end too early.
-	for i := 0; i < inputConcur; i += 1 {
+	for i := 0; i < inputConcur; i++ {
 		<-done
 	}
 
@@ -130,8 +129,8 @@ func NewNoopClient(f interface {
 	client.Transport = &NoopTripper{}
 
 	cfg := Config{
-		Logplex:            BogusLogplexUrl,
-		HttpClient:         client,
+		Logplex:            BogusLogplexURL,
+		HTTPClient:         client,
 		RequestSizeTrigger: sizeTrigger,
 		Concurrency:        3,
 		Period:             3 * time.Second,
@@ -174,7 +173,7 @@ func BenchmarkToUrl(b *testing.B) {
 		return
 	}
 
-	logplexUrl, err := url.Parse(os.Getenv("LOGPLEX_URL"))
+	logplexURL, err := url.Parse(os.Getenv("LOGPLEX_URL"))
 	if err != nil {
 		b.Fatalf("Could not parse logplex endpoint %q: %v",
 			os.Getenv("LOGPLEX_URL"), err)
@@ -188,8 +187,8 @@ func BenchmarkToUrl(b *testing.B) {
 	}
 
 	cfg := Config{
-		Logplex:            *logplexUrl,
-		HttpClient:         client,
+		Logplex:            *logplexURL,
+		HTTPClient:         client,
 		RequestSizeTrigger: 100 * KB,
 		Concurrency:        3,
 		Period:             3 * time.Second,
