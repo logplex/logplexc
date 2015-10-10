@@ -147,6 +147,7 @@ func (c *MiniClient) Post(b *Bundle) (*http.Response, error) {
 		return nil, err
 	}
 
+	req.Header.Add("User-Agent", "logplexc")
 	req.Header.Add("Content-Type", "application/logplex-1")
 	req.Header.Add("Logplex-Msg-Count",
 		strconv.FormatUint(b.NumberFramed, 10))
